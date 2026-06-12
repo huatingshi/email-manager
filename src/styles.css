@@ -888,6 +888,62 @@ textarea:focus,
   padding: 12px;
 }
 
+.message-links {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.message-links-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.message-links-head strong {
+  font-size: 14px;
+}
+
+.message-links-head span,
+.link-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.link-list {
+  display: grid;
+  gap: 8px;
+}
+
+.link-list a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.link-list a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-list a:hover {
+  background: rgba(35, 103, 242, 0.12);
+}
+
 .compact-preview-body {
   min-height: 150px;
   max-height: 260px;

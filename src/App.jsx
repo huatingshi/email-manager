@@ -3,6 +3,7 @@ import {
   BookOpen,
   CircleAlert,
   CircleCheckBig,
+  ExternalLink,
   Inbox,
   LoaderCircle,
   Mail,
@@ -235,7 +236,7 @@ function MessageList({ messages, selectedId, onSelect }) {
   );
 }
 
-function MessagePreview({ message }) {
+function MessagePreview({ message, fullMessage, fullLoading }) {
   if (!message) {
     return (
       <div className="receiver-preview blank">
@@ -244,6 +245,9 @@ function MessagePreview({ message }) {
       </div>
     );
   }
+
+  const previewText = fullMessage?.bodyText || message.bodyPreview || '当前邮件没有可用的正文预览。';
+  const links = fullMessage?.links || [];
 
   return (
     <div className="receiver-preview">
@@ -266,8 +270,28 @@ function MessagePreview({ message }) {
           <span>{message.providerLabel}</span>
         </div>
       </div>
+      <div className="message-links">
+        <div className="message-links-head">
+          <strong>邮件链接</strong>
+          {fullLoading ? <span>正在读取完整邮件...</span> : <span>{links.length} 个链接</span>}
+        </div>
+        {fullLoading ? (
+          <div className="link-empty">正在提取邮件里的可点击链接</div>
+        ) : links.length > 0 ? (
+          <div className="link-list">
+            {links.map((link) => (
+              <a key={link.url} href={link.url} target="_blank" rel="noreferrer">
+                <span>{link.label}</span>
+                <ExternalLink size={14} />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="link-empty">点开邮件后，如果完整正文里有链接，会显示在这里。</div>
+        )}
+      </div>
       <div className="preview-body compact-preview-body">
-        {message.bodyPreview || '当前邮件没有可用的正文预览。'}
+        {previewText}
       </div>
     </div>
   );
@@ -280,6 +304,8 @@ function ReceiverPage({
   messages,
   selectedId,
   onOpenMessage,
+  fullMessages,
+  loadingFull,
   onSyncPage,
   onImport,
   onDelete,
@@ -383,7 +409,11 @@ function ReceiverPage({
         </div>
       </div>
 
-      <MessagePreview message={selectedMessage} />
+      <MessagePreview
+        message={selectedMessage}
+        fullMessage={selectedMessage ? fullMessages[selectedMessage.id] : null}
+        fullLoading={selectedMessage ? Boolean(loadingFull[selectedMessage.id]) : false}
+      />
     </section>
   );
 }
@@ -394,6 +424,8 @@ export function App() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [importingPage, setImportingPage] = useState(null);
   const [notices, setNotices] = useState({});
+  const [fullMessages, setFullMessages] = useState({});
+  const [loadingFull, setLoadingFull] = useState({});
 
   async function refreshSnapshot() {
     const response = await fetch('/api/bootstrap');
@@ -516,31 +548,53 @@ export function App() {
     }
   }
 
-  async function openMessage(receiverPage, messageId) {
-    setSelectedByPage((current) => ({ ...current, [receiverPage]: messageId }));
-
-    const message = snapshot.messages.find((item) => item.id === messageId);
-    if (!message || message.isRead) return;
-
-    setSnapshot((current) => ({
-      ...current,
-      messages: current.messages.map((item) =>
-        item.id === messageId ? { ...item, isRead: true, readAt: new Date().toISOString() } : item
-      )
-    }));
-
+  async function loadFullMessage(receiverPage, messageId) {
+    if (fullMessages[messageId] || loadingFull[messageId]) return;
+    setLoadingFull((current) => ({ ...current, [messageId]: true }));
     try {
-      const response = await fetch(`/api/messages/${messageId}/read`, { method: 'POST' });
+      const response = await fetch(`/api/messages/${messageId}/full`);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '标记已读失败');
-      setSnapshot(payload);
+      if (!response.ok) throw new Error(payload.error || '完整邮件读取失败');
+      setFullMessages((current) => ({ ...current, [messageId]: payload }));
     } catch (error) {
       setNotices((current) => ({
         ...current,
         [receiverPage]: { type: 'danger', text: error.message }
       }));
-      await refreshSnapshot();
+    } finally {
+      setLoadingFull((current) => ({ ...current, [messageId]: false }));
     }
+  }
+
+  async function openMessage(receiverPage, messageId) {
+    setSelectedByPage((current) => ({ ...current, [receiverPage]: messageId }));
+
+    const message = snapshot.messages.find((item) => item.id === messageId);
+    if (!message) return;
+
+    if (!message.isRead) {
+      setSnapshot((current) => ({
+        ...current,
+        messages: current.messages.map((item) =>
+          item.id === messageId ? { ...item, isRead: true, readAt: new Date().toISOString() } : item
+        )
+      }));
+
+      try {
+        const response = await fetch(`/api/messages/${messageId}/read`, { method: 'POST' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || '标记已读失败');
+        setSnapshot(payload);
+      } catch (error) {
+        setNotices((current) => ({
+          ...current,
+          [receiverPage]: { type: 'danger', text: error.message }
+        }));
+        await refreshSnapshot();
+      }
+    }
+
+    await loadFullMessage(receiverPage, messageId);
   }
 
   const pages = [1, 2].map((page) => {
@@ -571,6 +625,8 @@ export function App() {
             messages={messages}
             selectedId={selectedByPage[page]}
             onOpenMessage={(messageId) => openMessage(page, messageId)}
+            fullMessages={fullMessages}
+            loadingFull={loadingFull}
             onSyncPage={syncPage}
             onImport={importAccounts}
             onDelete={deleteAccount}

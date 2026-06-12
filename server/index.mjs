@@ -11,6 +11,7 @@ const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 15000);
 const SYNC_CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 8);
 const GRAPH_SCOPE = process.env.GRAPH_SCOPE || 'https://graph.microsoft.com/Mail.Read';
 const TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const GRAPH_MESSAGE_ENDPOINT = 'https://graph.microsoft.com/v1.0/me/messages';
 const GRAPH_MESSAGES_ENDPOINT =
   'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages';
 const EMAIL_PATTERN = /^[^\s@|]+@[^\s@|]+\.[^\s@|]+$/;
@@ -120,6 +121,71 @@ function normalizeAccountPages() {
   for (const account of state.accounts) {
     account.receiverPage = normalizeReceiverPage(account.receiverPage);
   }
+}
+
+function decodeHtmlEntities(value = '') {
+  return String(value)
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_match, number) => String.fromCodePoint(Number(number)));
+}
+
+function stripHtml(value = '') {
+  return decodeHtmlEntities(
+    String(value)
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim()
+  );
+}
+
+function normalizeUrl(value = '') {
+  const cleaned = decodeHtmlEntities(value)
+    .trim()
+    .replace(/[),.;\]\s]+$/g, '');
+
+  try {
+    const url = new URL(cleaned);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function extractLinksFromMessage(content = '', webLink = '') {
+  const links = new Map();
+  const addLink = (url, label = '') => {
+    const normalized = normalizeUrl(url);
+    if (!normalized || links.has(normalized)) return;
+    links.set(normalized, {
+      url: normalized,
+      label: stripHtml(label).slice(0, 120) || new URL(normalized).hostname
+    });
+  };
+
+  const hrefPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for (const match of content.matchAll(hrefPattern)) {
+    addLink(match[1], match[2]);
+  }
+
+  const plainUrlPattern = /https?:\/\/[^\s<>"']+/gi;
+  for (const match of content.matchAll(plainUrlPattern)) {
+    addLink(match[0]);
+  }
+
+  addLink(webLink, 'Open in Outlook');
+  return [...links.values()];
 }
 
 function pruneMessagesToLatestPerAccount() {
@@ -349,6 +415,36 @@ async function fetchInboxMessages(accessToken) {
   return Array.isArray(payload.value) ? payload.value : [];
 }
 
+async function fetchFullMessage(account, message) {
+  const accessToken = await exchangeRefreshToken(account);
+  const params = new URLSearchParams({
+    '$select': 'id,subject,from,receivedDateTime,isRead,body,bodyPreview,webLink'
+  });
+
+  const { response, payload } = await fetchJsonWithTimeout(
+    `${GRAPH_MESSAGE_ENDPOINT}/${encodeURIComponent(message.providerMessageId)}?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Prefer: 'outlook.body-content-type="html"'
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message || '读取完整邮件失败');
+  }
+
+  const bodyContent = payload.body?.content || payload.bodyPreview || message.bodyPreview || '';
+  return {
+    id: message.id,
+    subject: payload.subject || message.subject || '',
+    bodyText: stripHtml(bodyContent).slice(0, 12000),
+    links: extractLinksFromMessage(bodyContent, payload.webLink || ''),
+    fetchedAt: now()
+  };
+}
+
 async function fetchAccountHistory(account, options = {}) {
   const limit = Math.min(Math.max(Number(options.limit) || 100, 1), 1000);
   const accessToken = await exchangeRefreshToken(account);
@@ -571,6 +667,29 @@ app.post('/api/messages/:messageId/read', async (request, response) => {
   message.readAt = message.readAt || now();
   await saveState();
   response.json(bootstrapPayload());
+});
+
+app.get('/api/messages/:messageId/full', async (request, response) => {
+  const { messageId } = request.params;
+  const message = state.messages.find((item) => item.id === messageId);
+
+  if (!message) {
+    response.status(404).json({ error: '邮件不存在' });
+    return;
+  }
+
+  const account = state.accounts.find((item) => item.id === message.accountId);
+  if (!account) {
+    response.status(404).json({ error: '邮箱账户不存在' });
+    return;
+  }
+
+  try {
+    const fullMessage = await fetchFullMessage(account, message);
+    response.json(fullMessage);
+  } catch (error) {
+    response.status(502).json({ error: error.message || '完整邮件读取失败' });
+  }
 });
 
 app.get('/api/accounts/:accountId/history', async (request, response) => {
