@@ -59,7 +59,7 @@ http://127.0.0.1:5173
 Backend:
 
 ```text
-http://127.0.0.1:8787
+http://127.0.0.1:8797
 ```
 
 ## Optional Desktop Shortcut
@@ -76,7 +76,7 @@ This creates a Windows desktop shortcut named `Mail Collector`.
 
 Environment variables:
 
-- `PORT`: API port, default `8787`
+- `PORT`: API port, default `8797`
 - `MAX_MESSAGES`: local maximum stored latest messages, default `100`
 - `MESSAGES_PER_ACCOUNT`: messages read per account, default `1`
 - `REQUEST_TIMEOUT_MS`: Microsoft API request timeout, default `15000`

@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 process.chdir(projectRoot);
 
-const BACKEND_PORT = Number(process.env.PORT || 8787);
+const BACKEND_PORT = Number(process.env.PORT || 8797);
 const FRONTEND_PORT = Number(process.env.FRONTEND_PORT || 5173);
 const PANEL_URL = `http://127.0.0.1:${FRONTEND_PORT}`;
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/api/health`;

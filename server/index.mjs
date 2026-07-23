@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 
 const app = express();
-const PORT = Number(process.env.PORT || 8787);
+const PORT = Number(process.env.PORT || 8797);
 const MAX_MESSAGES = Number(process.env.MAX_MESSAGES || 100);
 const MESSAGES_PER_ACCOUNT = Number(process.env.MESSAGES_PER_ACCOUNT || 1);
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 15000);
