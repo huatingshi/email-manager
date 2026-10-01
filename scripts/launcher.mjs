@@ -18,15 +18,19 @@ const READY_TIMEOUT_MS = 60_000;
 const PROBE_INTERVAL_MS = 800;
 const HTTP_TIMEOUT_MS = 2_000;
 const TCP_TIMEOUT_MS = 1_000;
-const MIN_NODE_MAJOR = 18;
 
 const stage = (name, message) => console.log(`[${name}] ${message}`);
 const fail = (message) => console.error(`\x1b[31m${message}\x1b[0m`);
 
+// Vite 7 requires Node.js ^20.19.0 || >=22.12.0.
+function isSupportedNode(major, minor) {
+  return (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 23;
+}
+
 function checkNodeVersion() {
-  const major = Number(process.versions.node.split('.')[0]);
-  if (Number.isFinite(major) && major < MIN_NODE_MAJOR) {
-    fail(`检测到 Node.js ${process.version}，低于所需的 v${MIN_NODE_MAJOR}.x。`);
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (!isSupportedNode(major, minor)) {
+    fail(`检测到 Node.js ${process.version}，需要 20.19+ 或 22.12+。`);
     fail(`请前往 https://nodejs.org/ 升级到最新 LTS 后重试。`);
     process.exit(1);
   }
